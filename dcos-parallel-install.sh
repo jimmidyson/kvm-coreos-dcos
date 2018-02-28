@@ -19,7 +19,7 @@ EOF
       echo "Sleeping for ${3}"
       sleep ${3}
     fi
-    tmux new-window "${tfile} ${member}"
+    tmux new-window -t tester "${tfile} ${member}"
   done
   #rm ${tfile}.*
 }
@@ -30,25 +30,18 @@ function parallel_scp(){
 
   for member in ${members}; do
     echo "scp ${files} to ${member}"
-    tmux new-window "scp -i ${PRIVKEY} ${files} ${COREUSER}@${member}:"
+    tmux new-window -t tester "scp -i ${PRIVKEY} ${files} ${COREUSER}@${member}:"
   done
 }
 
-function wait_sessions() {
-  local max_wait=120
+function wait_windows() {
   local interval="30s"
   if [ ! -z ${1} ]; then interval=${1}; fi
-  local wins=$(tmux list-sessions | cut -d' ' -f2)
+  local wins=$(tmux list-windows -t tester | wc -l)
   while [ ! "${wins}" == "1" ]; do
     sleep ${interval}
-    (( max_wait-- ))
-    wins=$(tmux list-sessions | cut -d' ' -f2)
+    wins=$(tmux list-windows -t tester | wc -l)
     echo "Remaining tasks ${wins}"
-    if [ ${max_wait} -le 0 ] ; then
-      echo "Timeout waiting for all sessions to close."
-      tmux kill-server
-      exit 1
-    fi
   done
 }
 
@@ -61,7 +54,6 @@ for f in ${PRIVKEY}; do
 done
 
 echo "Starting tmux..."
-tmux start-server
 tmux new-session -d -s tester
 
 echo "Scanning node public keys for SSH auth ..."
@@ -72,33 +64,31 @@ done
 
 echo "Making sure we can SSH to all nodes ..."
 parallel_ssh "${NODES}" "ls -l"
-wait_sessions "5s"
+wait_windows "5s"
 
 echo "Scp-ing scripts to nodes ..."
 parallel_scp "${NODES}" "cluster.conf scripts/all*"
 parallel_scp "${BOOTSTRAP}" "scripts/boot*"
-parallel_scp "${NODESM}" "scripts/master*"
-parallel_scp "${NODESPRIV}" "scripts/private*"
+parallel_scp "${NODESMASTERS}" "scripts/master*"
 parallel_scp "${NODESPUB}" "scripts/public*"
-wait_sessions "5s"
+wait_windows "5s"
 
 echo "Quick bootstrap on all nodes"
 parallel_ssh "${NODES}" "/home/${COREUSER}/all-01.sh"
 
 echo "Preparing DC/OS binaries ..."
 parallel_ssh "${BOOTSTRAP}" "sudo /home/${COREUSER}/boot-02.sh"
-wait_sessions
+wait_windows "1m"
 
 echo "Installing master nodes ..."
-parallel_ssh "${NODESM}" "sudo /home/${COREUSER}/master-02.sh" "1m"
-wait_sessions "1m"
+parallel_ssh "${NODESMASTERS}" "sudo /home/${COREUSER}/master-02.sh" "1m"
+wait_windows "1m"
 sleep 1m
 
-echo "Installing private and public nodes ..."
-parallel_ssh "${NODESPRIV}" "sudo /home/${COREUSER}/private-02.sh"
+echo "Installing public nodes ..."
 parallel_ssh "${NODESPUB}" "sudo /home/${COREUSER}/public-02.sh"
-wait_sessions "1m"
+wait_windows "1m"
 
 echo "Shutting down tmux"
-tmux kill-server
+tmux kill-session -t tester
 echo "Done"

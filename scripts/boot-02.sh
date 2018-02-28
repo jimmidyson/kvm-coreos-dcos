@@ -31,19 +31,11 @@ set -o nounset -o errexit
 ${IPDETECT_PUB}
 EOF
 
-EXTRA_MASTERS=""
-if [ -n "${MASTER2}" ] && [ -n "${MASTER3}" ]; then
-  EXTRA_MASTERS="
-- ${MASTER2}
-- ${MASTER3}
-"
-fi
-
 BOOTSTRAP_IP=$(bash genconf/ip-detect)
 echo "Writing config.yaml"
 cat <<EOF >genconf/config.yaml
 bootstrap_url: http://${BOOTSTRAP_IP}:${BOOTSTRAP_PORT}
-cluster_name: julians
+cluster_name: ${USER}s
 exhibitor_storage_backend: static
 master_discovery: static
 telemetry_enabled: false
@@ -51,9 +43,7 @@ security: permissive
 rexray_config_method: file
 rexray_config_filename: rexray.yaml
 ip_detect_public_filename: genconf/ip-detect-public
-master_list:
-- ${MASTER1}
-${EXTRA_MASTERS}
+master_list: [ ${NODESMASTERS} ]
 resolvers:
 ${resolvers}
 superuser_username: bootstrapuser
